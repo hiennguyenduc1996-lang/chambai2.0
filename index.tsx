@@ -1,16 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { Upload, FileText, Download, Trash2, X, Check, Loader2, Image as ImageIcon, Clipboard, Plus, Eye, ZoomIn, ZoomOut, Maximize2, ArrowUp, ArrowDown, Shuffle, Settings, User, Key, ArrowLeft, Info, EyeOff, Calculator, FlaskConical, Languages } from 'lucide-react';
+import { Upload, FileText, Download, Trash2, X, Check, Loader2, Image as ImageIcon, Clipboard, Plus, Eye, ZoomIn, ZoomOut, Maximize2, ArrowUp, ArrowDown, Shuffle } from 'lucide-react';
 
 // Declare mammoth for TypeScript (loaded via script tag)
 declare const mammoth: any;
-
-// --- CONFIGURATION ---
-// ⚠️ QUAN TRỌNG: Key mặc định của chủ sở hữu web.
-// Hệ thống sẽ ưu tiên: Key người dùng nhập > Key này > Báo lỗi.
-// Bạn có thể dán trực tiếp chuỗi Key vào đây, ví dụ: "AIzaSy..."
-const DEFAULT_OWNER_KEY = process.env.API_KEY || ""; 
 
 // --- Types ---
 
@@ -100,7 +94,7 @@ const extractTextFromDocx = async (file: File): Promise<string> => {
     const reader = new FileReader();
     reader.onload = (event) => {
       const arrayBuffer = event.target?.result;
-      if (typeof mammoth !== 'undefined') {
+      if (mammoth) {
         mammoth.extractRawText({ arrayBuffer: arrayBuffer })
           .then((result: any) => resolve(result.value))
           .catch((err: any) => reject(err));
@@ -164,59 +158,8 @@ const App = () => {
   const [docFiles, setDocFiles] = useState<DocFile[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult[] | null>(null);
-  const [analysisType, setAnalysisType] = useState<'math' | 'science' | 'english' | null>(null);
 
-
-  // --- STATE FOR SETTINGS ---
-  const [showSettings, setShowSettings] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'author' | 'config'>('author');
-  const [userApiKey, setUserApiKey] = useState(() => {
-    return localStorage.getItem('gemini_api_key') || '';
-  });
-  const [showKey, setShowKey] = useState(false);
-
-  useEffect(() => {
-    localStorage.setItem('gemini_api_key', userApiKey);
-  }, [userApiKey]);
-
-  // Helper to safely get the API Key
-  const getAI = () => {
-    // Priority 1: User's personal key
-    let key = userApiKey.trim();
-    
-    // Priority 2: System Default Key (Hardcoded or Env)
-    if (!key) {
-        key = DEFAULT_OWNER_KEY;
-    }
-
-    if (!key) {
-      throw new Error("Vui lòng nhập Google Gemini API Key trong phần Cài đặt.");
-    }
-    return new GoogleGenAI({ apiKey: key });
-  };
-
-  // Helper: Try models in sequence for robustness
-  const generateWithFallback = async (ai: GoogleGenAI, params: any) => {
-    // Priority: 1. Experimental 2.0 Pro (Best), 2. Stable 1.5 Pro (Reliable)
-    const models = ['gemini-2.0-pro-exp-02-05', 'gemini-1.5-pro'];
-    
-    let lastError;
-    for (const model of models) {
-      try {
-        console.log(`Attempting with model: ${model}`);
-        const response = await ai.models.generateContent({
-          ...params,
-          model: model,
-        });
-        return response; // Success
-      } catch (e: any) {
-        console.warn(`Model ${model} failed:`, e);
-        lastError = e;
-        // Continue to next model
-      }
-    }
-    throw lastError; // All failed
-  };
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   // --------------------------------------------------------------------------
   //                               ANSWERS TAB LOGIC
@@ -291,46 +234,13 @@ const App = () => {
   };
 
   const getSystemInstruction = (subject: SubjectState) => {
-    const role = "Bạn là chuyên gia xử lý dữ liệu (OCR Expert). Nhiệm vụ của bạn là trích xuất dữ liệu từ bảng đáp án với độ chính xác 100%.";
-    
-    let structureInfo = "";
+    const common = "Nhiệm vụ: Tìm và trích xuất bảng đáp án cho TẤT CẢ các Mã Đề (exam codes) có trong tài liệu được cung cấp. Trả về danh sách, mỗi phần tử tương ứng với một mã đề.";
     if (subject.type === 'english') {
-      structureInfo = `
-      CẤU TRÚC ĐỀ TIẾNG ANH:
-      - Chỉ có 1 Phần (Trắc nghiệm 4 lựa chọn).
-      - Các câu hỏi được đánh số liên tục từ 1 đến 40 (hoặc 50 tùy đề).
-      - Mỗi câu chỉ có 1 đáp án đúng (A, B, C, hoặc D).
-      `;
+      return `${common} Môn Tiếng Anh: Mỗi mã đề gồm 40 câu trắc nghiệm (1-40).`;
     } else {
       const p1Count = subject.type === 'math' ? 12 : 18;
-      structureInfo = `
-      CẤU TRÚC ĐỀ MỚI 2025 (QUAN TRỌNG):
-      Đề thi gồm 3 PHẦN RIÊNG BIỆT. Hãy nhận diện chính xác từng phần:
-      1. PHẦN 1 (Trắc nghiệm nhiều lựa chọn):
-         - ${subject.name === 'Toán Học' ? '12' : '18'} câu đầu tiên.
-         - Đáp án là 1 ký tự: A, B, C, hoặc D.
-      2. PHẦN 2 (Trắc nghiệm Đúng/Sai):
-         - Gồm 4 câu hỏi nhóm.
-         - Mỗi câu nhóm có 4 ý nhỏ (a, b, c, d).
-         - Bắt buộc phải trích xuất đủ 4 ý cho mỗi câu nhóm.
-         - Đáp án thường là "Đ" (Đúng) hoặc "S" (Sai). Đôi khi ký hiệu là T/F.
-      3. PHẦN 3 (Trả lời ngắn):
-         - Gồm 6 câu hỏi cuối.
-         - Đáp án là số hoặc chuỗi ngắn.
-      `;
+      return `${common} Form mới 2025. Phần 1: ${p1Count} câu nhiều lựa chọn. Phần 2: 4 câu đúng sai. Phần 3: 6 câu trả lời ngắn.`;
     }
-
-    return `${role}
-    ${structureInfo}
-
-    QUY TRÌNH XỬ LÝ CAO CẤP (BẮT BUỘC):
-    1. SCAN TOÀN BỘ: Tìm tất cả các vùng chứa bảng đáp án (Grid Table).
-    2. XÁC ĐỊNH MÃ ĐỀ: Nhóm dữ liệu theo từng Mã Đề (Exam Codes) riêng biệt.
-    3. ĐỌC DỮ LIỆU TỪNG DÒNG (ROW-BY-ROW): Đọc kỹ lưỡng từng ô trong bảng. Không được bỏ sót hoặc đoán mò. Nếu ảnh mờ, hãy cố gắng suy luận dựa trên cấu trúc hình học của bảng.
-    4. KIỂM TRA LOGIC: 
-       - Phần 2 phải có đủ a, b, c, d. 
-       - Số lượng câu hỏi phải khớp với cấu trúc đề đã mô tả ở trên.
-    `;
   };
 
   const getSchema = (subject: SubjectState): Schema => {
@@ -347,41 +257,19 @@ const App = () => {
   const analyzeSubject = async (subjectIndex: number) => {
     const subject = subjects[subjectIndex];
     if (subject.imageIds.length === 0) return;
-    
-    // Check Key presence locally first
-    try {
-        getAI();
-    } catch (e: any) {
-        alert(e.message);
-        setShowSettings(true);
-        setSettingsTab('config');
-        return;
-    }
-
     setSubjects(prev => prev.map((s, i) => i === subjectIndex ? { ...s, isLoading: true, error: null } : s));
     try {
-      const ai = getAI();
       const parts = [];
-      
-      // Add images first
+      parts.push({ text: getSystemInstruction(subject) });
       for (const imgId of subject.imageIds) {
         const imgItem = images[imgId];
         parts.push({ inlineData: { mimeType: imgItem.file.type || 'image/jpeg', data: imgItem.base64 } });
       }
-
-      // Add a specific prompt text to trigger the analysis
-      parts.push({ text: "Hãy phân tích hình ảnh và trích xuất bảng đáp án chính xác tuyệt đối theo yêu cầu hệ thống." });
-
-      // USING FALLBACK STRATEGY
-      const response = await generateWithFallback(ai, {
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
         contents: { parts },
-        config: { 
-          responseMimeType: 'application/json', 
-          responseSchema: getSchema(subject),
-          systemInstruction: getSystemInstruction(subject),
-        }
+        config: { responseMimeType: 'application/json', responseSchema: getSchema(subject) }
       });
-
       let results: ExamResult[] = [];
       if (response.text) {
           const parsed = JSON.parse(response.text);
@@ -394,14 +282,9 @@ const App = () => {
           results.sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
       }
       setSubjects(prev => prev.map((s, i) => i === subjectIndex ? { ...s, isLoading: false, results } : s));
-    } catch (error: any) {
+    } catch (error) {
       console.error("AI Error:", error);
-      let msg = "Lỗi khi phân tích. ";
-      if (error.message && error.message.includes('429')) msg += "Hệ thống đang quá tải (Rate Limit). Vui lòng nhập API Key riêng trong Cài Đặt.";
-      else if (error.message && error.message.includes('404')) msg += "Model không phản hồi. Vui lòng thử lại sau.";
-      else msg += "Vui lòng thử lại hoặc kiểm tra API Key.";
-      
-      setSubjects(prev => prev.map((s, i) => i === subjectIndex ? { ...s, isLoading: false, error: msg } : s));
+      setSubjects(prev => prev.map((s, i) => i === subjectIndex ? { ...s, isLoading: false, error: "Lỗi khi phân tích. Vui lòng thử lại." } : s));
     }
   };
 
@@ -442,9 +325,6 @@ const App = () => {
   const handleDocUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
     
-    // Clear previous results to avoid mismatch errors
-    setAnalysisResult(null);
-
     const newFiles: DocFile[] = [];
     for (let i = 0; i < e.target.files.length; i++) {
       const file = e.target.files[i];
@@ -484,7 +364,6 @@ const App = () => {
 
   const removeDocFile = (id: string) => {
     setDocFiles(prev => prev.filter(f => f.id !== id));
-    setAnalysisResult(null); // Clear result when files change
   };
 
   const moveDocFile = (index: number, direction: 'up' | 'down') => {
@@ -495,104 +374,40 @@ const App = () => {
       [newFiles[index], newFiles[index + 1]] = [newFiles[index + 1], newFiles[index]];
     }
     setDocFiles(newFiles);
-    setAnalysisResult(null); // Clear result when order changes
   };
 
-  const compareExams = async (type: 'math' | 'science' | 'english') => {
+  const compareExams = async () => {
     if (docFiles.length < 2) return;
-    
-    // Check Key
-    try {
-        getAI();
-    } catch (e: any) {
-        alert(e.message);
-        setShowSettings(true);
-        setSettingsTab('config');
-        return;
-    }
-
     setIsAnalyzing(true);
-    setAnalysisType(type);
     setAnalysisResult(null);
 
     try {
-      const ai = getAI();
+      // Prompt construction
       const parts = [];
-
-      let specificPrompt = "";
-      if (type === 'english') {
-          specificPrompt = `
-          Cấu trúc đề Tiếng Anh:
-          - Gồm 40 câu trắc nghiệm thông thường (Câu 1 đến Câu 40).
-          - Tổng số câu cần map: 40.
-          `;
-      } else if (type === 'math') {
-          specificPrompt = `
-          Cấu trúc đề Toán (Form mới):
-          - Đề thi gốc gồm 3 phần.
-          - Quy đổi toàn bộ thành danh sách các câu hỏi đơn lẻ (flattened index) theo thứ tự từ 1 đến 34 như sau:
-            + Phần 1 (Câu 1 đến 12): Giữ nguyên thứ tự là câu 1 -> 12.
-            + Phần 2 (Câu 13 đến 16): Mỗi câu có 4 ý a,b,c,d. LƯU Ý: Bỏ qua nội dung câu dẫn (stem), chỉ lấy nội dung của từng ý a, b, c, d để so sánh. Tách mỗi ý thành một câu hỏi riêng biệt:
-              * Câu 13a -> Câu 13
-              * Câu 13b -> Câu 14
-              * Câu 13c -> Câu 15
-              * Câu 13d -> Câu 16
-              * Câu 14a -> Câu 17
-              * ... tiếp tục cho đến Câu 16d -> Câu 28.
-              (Tóm lại: Phần 2 tương ứng với các câu từ 13 đến 28).
-            + Phần 3 (Câu 1 đến 6 - điền đáp án): Coi tiếp là các câu từ 29 đến 34.
-              * Phần 3 Câu 1 -> Câu 29
-              * Phần 3 Câu 2 -> Câu 30
-              * ...
-              * Phần 3 Câu 6 -> Câu 34.
-          - Tổng số câu cần map: 34.
-          `;
-      } else if (type === 'science') {
-          specificPrompt = `
-          Cấu trúc đề Lý / Hóa / Sinh (Form mới):
-          - Đề thi gốc gồm 3 phần.
-          - Quy đổi toàn bộ thành danh sách các câu hỏi đơn lẻ (flattened index) theo thứ tự từ 1 đến 40 như sau:
-            + Phần 1 (Câu 1 đến 18): Giữ nguyên thứ tự là câu 1 -> 18.
-            + Phần 2 (Câu 19 đến 22): Mỗi câu có 4 ý a,b,c,d. LƯU Ý: Bỏ qua nội dung câu dẫn (stem), chỉ lấy nội dung của từng ý a, b, c, d để so sánh. Tách mỗi ý thành một câu hỏi riêng biệt:
-              * Câu 19a -> Câu 19
-              * Câu 19b -> Câu 20
-              * Câu 19c -> Câu 21
-              * Câu 19d -> Câu 22
-              * Câu 20a -> Câu 23
-              * ... tiếp tục cho đến Câu 22d -> Câu 34.
-              (Tóm lại: Phần 2 tương ứng với các câu từ 19 đến 34).
-            + Phần 3 (Câu 1 đến 6 - điền đáp án): Coi tiếp là các câu từ 35 đến 40.
-              * Phần 3 Câu 1 -> Câu 35
-              * ...
-              * Phần 3 Câu 6 -> Câu 40.
-          - Tổng số câu cần map: 40.
-          `;
-      }
-
-      let prompt = `Nhiệm vụ: So sánh vị trí nội dung câu hỏi giữa các đề thi.
+      let prompt = `Nhiệm vụ: So sánh các câu hỏi giữa các đề thi.
       
-      Dữ liệu:
-      - File 1: Mã đề chuẩn.
-      - File 2, File 3...: Các đề thi khác (đã bị trộn câu hỏi từ File 1).
-      
-      ${specificPrompt}
+      Dữ liệu cung cấp bao gồm nhiều đề thi. 
+      Đề thi đầu tiên (File 1) là "Mã đề chuẩn".
+      Các đề thi tiếp theo (File 2, File 3...) là các đề đã được trộn câu hỏi từ File 1.
 
-      YÊU CẦU:
-      Với từng câu hỏi (theo chỉ số đã quy đổi ở trên) của Mã đề chuẩn (File 1), hãy tìm xem nội dung câu hỏi đó nằm ở vị trí nào (theo chỉ số đã quy đổi) trong các đề còn lại.
+      Hãy phân tích nội dung từng câu hỏi. 
+      Với mỗi câu hỏi từ 1 đến 40 của Mã đề chuẩn (File 1), hãy tìm xem nó nằm ở vị trí câu số mấy trong các đề còn lại.
       
-      Output JSON format:
-      Một mảng các object. Mỗi object đại diện cho một file đề thi (TRỪ đề chuẩn).
+      Yêu cầu đầu ra JSON:
+      Một mảng các object. Mỗi object đại diện cho một đề thi (TRỪ đề chuẩn).
       Structure:
       {
          "examName": "Tên file đề thi",
-         "mapping": [ ... mảng số nguyên ... ]
+         "mapping": [ ... mảng gồm 40 số nguyên ... ]
       }
       
       Giải thích mảng "mapping":
-      - Phần tử tại index 0: Vị trí của "Câu 1 (File 1)" trong đề này.
-      - Phần tử tại index 1: Vị trí của "Câu 2 (File 1)" trong đề này.
-      - ...
-      - Nếu không tìm thấy, trả về null.
+      - Phần tử tại index 0 ứng với Câu 1 của Mã đề chuẩn. Giá trị của nó là số thứ tự câu hỏi trong đề này.
+      - Phần tử tại index 1 ứng với Câu 2 của Mã đề chuẩn.
+      ...
+      - Nếu không tìm thấy câu tương ứng, để giá trị null.
+
+      Ví dụ: Nếu Câu 1 của Đề Chuẩn là Câu 18 của Đề B, thì mapping[0] = 18.
       `;
 
       parts.push({ text: prompt });
@@ -609,8 +424,8 @@ const App = () => {
         parts.push({ text: `\n--- END OF FILE ${i + 1} ---\n` });
       }
 
-      // USING FALLBACK STRATEGY
-      const response = await generateWithFallback(ai, {
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
         contents: { parts },
         config: {
           responseMimeType: 'application/json',
@@ -632,11 +447,9 @@ const App = () => {
         setAnalysisResult(JSON.parse(response.text));
       }
 
-    } catch (e: any) {
+    } catch (e) {
       console.error(e);
-      let msg = "Có lỗi xảy ra khi phân tích.";
-      if (e.message && e.message.includes('429')) msg += " (Quá tải hệ thống - Vui lòng nhập Key cá nhân)";
-      alert(msg);
+      alert("Có lỗi xảy ra khi phân tích. Vui lòng thử lại.");
     } finally {
       setIsAnalyzing(false);
     }
@@ -645,15 +458,13 @@ const App = () => {
   const downloadComparisonWord = () => {
     if (!analysisResult || docFiles.length === 0) return;
 
-    const maxQ = analysisType === 'math' ? 34 : 40;
-
-    // First row is the Reference Exam
+    // First row is the Reference Exam (1-40)
     let rowsHtml = '';
     
-    // Header Row (Standard) - Yellow
-    const refName = docFiles[0]?.name.replace(/\.[^/.]+$/, "") || 'Mã đề gốc';
+    // Header Row (Standard 1-40) - Yellow
+    const refName = docFiles[0].name.replace(/\.[^/.]+$/, "");
     let row1 = `<td style="background-color:${TABLE_COLORS[0]}; font-weight:bold; padding:5px;">${refName} (Gốc)</td>`;
-    for(let i=1; i<=maxQ; i++) {
+    for(let i=1; i<=40; i++) {
         row1 += `<td style="background-color:${TABLE_COLORS[0]}; text-align:center; font-weight:bold; width:30px;">${i}</td>`;
     }
     rowsHtml += `<tr>${row1}</tr>`;
@@ -663,12 +474,9 @@ const App = () => {
        const color = TABLE_COLORS[(idx + 1) % TABLE_COLORS.length];
        let row = `<td style="background-color:${color}; font-weight:bold; padding:5px;">${res.examName.replace(/\.[^/.]+$/, "")}</td>`;
        
-       // Ensure mapping has enough items or truncate if needed, though prompt should handle it.
-       // We iterate up to maxQ.
-       for(let i=0; i<maxQ; i++) {
-           const val = res.mapping[i];
-           row += `<td style="background-color:${color}; text-align:center; width:30px;">${val || '-'}</td>`;
-       }
+       res.mapping.forEach(val => {
+         row += `<td style="background-color:${color}; text-align:center; width:30px;">${val || '-'}</td>`;
+       });
        rowsHtml += `<tr>${row}</tr>`;
     });
 
@@ -676,7 +484,7 @@ const App = () => {
       <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word'>
       <head><meta charset="utf-8"><title>Bảng So Sánh</title></head>
       <body style="font-family:'Times New Roman',serif;">
-        <h2 style="text-align:center; color:#1e3a8a;">BẢNG SO SÁNH CÂU HỎI (${analysisType === 'math' ? 'TOÁN' : (analysisType === 'english' ? 'TIẾNG ANH' : 'KHTN')})</h2>
+        <h2 style="text-align:center; color:#1e3a8a;">BẢNG SO SÁNH CÂU HỎI</h2>
         <table border="1" style="border-collapse:collapse; width:100%; font-size:12px;">
           ${rowsHtml}
         </table>
@@ -695,139 +503,6 @@ const App = () => {
   //                               RENDER
   // --------------------------------------------------------------------------
 
-  // Settings Overlay View
-  if (showSettings) {
-    return (
-      <div style={{ position: 'fixed', inset: 0, background: '#f8fafc', zIndex: 2000, display: 'flex' }}>
-         {/* Sidebar */}
-         <div style={{ width: '300px', background: '#1e3a8a', color: 'white', display: 'flex', flexDirection: 'column', borderRight: '1px solid #172554' }}>
-            <div style={{ padding: '20px' }}>
-               <button 
-                 onClick={() => setShowSettings(false)}
-                 style={{ 
-                    background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', padding: '10px 16px', 
-                    borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, width: '100%'
-                 }}>
-                 <ArrowLeft size={18} /> Quay lại
-               </button>
-            </div>
-            
-            <div style={{ marginTop: '20px' }}>
-                <div style={{ padding: '10px 20px', fontSize: '12px', color: '#bfdbfe', fontWeight: 700, textTransform: 'uppercase' }}>Thông tin tác giả</div>
-                <div 
-                   onClick={() => setSettingsTab('author')}
-                   style={{ 
-                     padding: '12px 20px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px',
-                     background: settingsTab === 'author' ? '#172554' : 'transparent', borderLeft: settingsTab === 'author' ? '4px solid #60a5fa' : '4px solid transparent'
-                   }}>
-                   <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#60a5fa', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#1e3a8a' }}>H</div>
-                   <div>
-                       <div style={{ fontSize: '14px', fontWeight: 600 }}>Nguyễn Đức Hiền</div>
-                       <div style={{ fontSize: '11px', color: '#dbeafe' }}>Giáo viên Vật Lí</div>
-                   </div>
-                </div>
-            </div>
-
-            <div style={{ marginTop: '20px' }}>
-                <div style={{ padding: '10px 20px', fontSize: '12px', color: '#bfdbfe', fontWeight: 700, textTransform: 'uppercase' }}>Cấu hình hệ thống</div>
-                <div 
-                   onClick={() => setSettingsTab('config')}
-                   style={{ 
-                     padding: '12px 20px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px',
-                     background: settingsTab === 'config' ? '#172554' : 'transparent', borderLeft: settingsTab === 'config' ? '4px solid #60a5fa' : '4px solid transparent'
-                   }}>
-                   <Key size={18} color="#dbeafe" />
-                   <div style={{ fontSize: '14px', fontWeight: 600 }}>GOOGLE GEMINI API KEY</div>
-                </div>
-            </div>
-         </div>
-
-         {/* Content */}
-         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#f1f5f9' }}>
-             {settingsTab === 'author' && (
-                 <div style={{ background: 'white', padding: '60px', borderRadius: '24px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)', textAlign: 'center', maxWidth: '600px', width: '100%' }}>
-                     <div style={{ width: '100px', height: '100px', borderRadius: '50%', background: '#2563eb', color: 'white', fontSize: '48px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px auto' }}>H</div>
-                     <h2 style={{ fontSize: '28px', color: '#1e3a8a', margin: '0 0 10px 0' }}>Nguyễn Đức Hiền</h2>
-                     <div style={{ fontSize: '18px', color: '#2563eb', fontWeight: 500, marginBottom: '20px' }}>Giáo viên Vật Lí</div>
-                     <div style={{ width: '50px', height: '2px', background: '#e2e8f0', margin: '0 auto 20px auto' }}></div>
-                     <p style={{ fontSize: '16px', color: '#475569', margin: 0 }}>Trường THCS và THPT Nguyễn Khuyến Bình Dương</p>
-                     
-                     <div style={{ marginTop: '40px', padding: '20px', background: '#eff6ff', borderRadius: '12px', border: '1px solid #bfdbfe' }}>
-                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: '#1e40af', fontWeight: 600, marginBottom: '5px' }}>
-                            <Info size={18} /> Thông tin ứng dụng
-                         </div>
-                         <div style={{ fontSize: '14px', color: '#1e3a8a' }}>Phiên bản: 1.0 (Công cụ trộn đề NK12)</div>
-                         <div style={{ fontSize: '12px', color: '#60a5fa', marginTop: '5px' }}>© 2025 Bản quyền thuộc về tác giả.</div>
-                     </div>
-                 </div>
-             )}
-
-             {settingsTab === 'config' && (
-                 <div style={{ background: 'white', padding: '40px', borderRadius: '24px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)', maxWidth: '700px', width: '100%' }}>
-                     {/* Header */}
-                     <div style={{ display: 'flex', gap: '20px', marginBottom: '30px' }}>
-                         <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: '#dbeafe', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                             <Key size={30} color="#2563eb" />
-                         </div>
-                         <div>
-                             <h2 style={{ fontSize: '24px', margin: '0 0 8px 0', color: '#1e293b', fontWeight: 700 }}>Cấu hình API Key</h2>
-                             <p style={{ margin: 0, color: '#64748b', fontSize: '15px' }}>Nhập Key cá nhân của bạn để sử dụng tính năng AI không giới hạn.</p>
-                         </div>
-                     </div>
-
-                     {/* Input Section */}
-                     <div style={{ marginBottom: '20px' }}>
-                         <label style={{ display: 'block', fontSize: '15px', fontWeight: 600, color: '#334155', marginBottom: '10px' }}>Google Gemini API Key</label>
-                         <div style={{ position: 'relative' }}>
-                             <input 
-                                 type={showKey ? "text" : "password"} 
-                                 value={userApiKey}
-                                 onChange={(e) => setUserApiKey(e.target.value)}
-                                 placeholder="• • • • • • • • • • • • • • • • • • • • • • • •"
-                                 style={{ 
-                                     width: '100%', padding: '14px 45px 14px 20px', borderRadius: '12px', border: '1px solid #cbd5e1', 
-                                     fontSize: '16px', outline: 'none', background: '#f8fafc', color: '#334155', transition: 'border 0.2s'
-                                 }}
-                                 onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                                 onBlur={(e) => e.target.style.borderColor = '#cbd5e1'}
-                             />
-                             <button 
-                                 onClick={() => setShowKey(!showKey)}
-                                 style={{ 
-                                     position: 'absolute', right: '15px', top: '50%', transform: 'translateY(-50%)', 
-                                     background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8'
-                                 }}>
-                                 {showKey ? <EyeOff size={20} /> : <Eye size={20} />}
-                             </button>
-                         </div>
-                         
-                         <p style={{ fontSize: '13px', color: '#64748b', marginTop: '12px' }}>
-                             Key được lưu trong trình duyệt của bạn. • 
-                             <span style={{ color: userApiKey ? '#16a34a' : (DEFAULT_OWNER_KEY ? '#16a34a' : '#f59e0b'), fontWeight: 600 }}>
-                                {userApiKey ? ' Đang dùng Key cá nhân' : (DEFAULT_OWNER_KEY ? ' Đang dùng Key mặc định của hệ thống' : ' Chưa có Key')}
-                             </span>
-                         </p>
-                     </div>
-
-                     <div style={{ height: '1px', background: '#e2e8f0', margin: '30px 0' }}></div>
-
-                     {/* Instructions */}
-                     <div>
-                         <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#334155', marginBottom: '15px' }}>Hướng dẫn lấy Key (nếu muốn dùng riêng):</h3>
-                         <ul style={{ margin: 0, paddingLeft: '20px', color: '#475569', fontSize: '15px', lineHeight: '1.8' }}>
-                             <li>Truy cập <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer" style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 500 }}>Google AI Studio</a>.</li>
-                             <li>Đăng nhập tài khoản Google.</li>
-                             <li>Chọn "Create API Key" và copy dán vào ô trên.</li>
-                         </ul>
-                     </div>
-                 </div>
-             )}
-         </div>
-      </div>
-    );
-  }
-
-  // Regular App Render
   return (
     <div style={{ maxWidth: '1800px', margin: '0 auto', padding: '20px', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       
@@ -1061,53 +736,25 @@ const App = () => {
             {/* Right Column: Actions & Results */}
             <div style={{ flex: '2 1 600px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
                 <div style={{ background: 'white', padding: '20px', borderRadius: '16px', border: '1px solid #e2e8f0', textAlign: 'center' }}>
-                    <h3 style={{ margin: '0 0 15px 0', color: '#334155' }}>Chọn môn để so sánh</h3>
-                    
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '15px' }}>
-                        <button 
-                            onClick={() => compareExams('math')}
-                            disabled={docFiles.length < 2 || isAnalyzing}
-                            className="compare-btn"
-                            style={{ 
-                                background: isAnalyzing ? '#cbd5e1' : '#eff6ff', 
-                                border: '2px solid #2563eb', color: '#2563eb'
-                            }}>
-                            {isAnalyzing ? <Loader2 className="spin" size={20}/> : <Calculator size={24} />}
-                            <span style={{ fontSize: '14px', fontWeight: 600 }}>Toán học</span>
-                        </button>
-                        
-                        <button 
-                            onClick={() => compareExams('science')}
-                            disabled={docFiles.length < 2 || isAnalyzing}
-                            className="compare-btn"
-                            style={{ 
-                                background: isAnalyzing ? '#cbd5e1' : '#f0fdf4', 
-                                border: '2px solid #16a34a', color: '#16a34a'
-                            }}>
-                            {isAnalyzing ? <Loader2 className="spin" size={20}/> : <FlaskConical size={24} />}
-                            <span style={{ fontSize: '14px', fontWeight: 600 }}>KHTN (Lý/Hóa/Sinh)</span>
-                        </button>
-                        
-                        <button 
-                            onClick={() => compareExams('english')}
-                            disabled={docFiles.length < 2 || isAnalyzing}
-                            className="compare-btn"
-                            style={{ 
-                                background: isAnalyzing ? '#cbd5e1' : '#fff7ed', 
-                                border: '2px solid #c2410c', color: '#c2410c'
-                            }}>
-                            {isAnalyzing ? <Loader2 className="spin" size={20}/> : <Languages size={24} />}
-                            <span style={{ fontSize: '14px', fontWeight: 600 }}>Tiếng Anh</span>
-                        </button>
-                    </div>
-
-                    {docFiles.length < 2 && <p style={{ color: '#ef4444', fontSize: '13px', marginTop: '15px' }}>Vui lòng tải lên ít nhất 2 đề thi.</p>}
+                    <h3 style={{ margin: '0 0 15px 0', color: '#334155' }}>Phân tích & So sánh</h3>
+                    <button 
+                        onClick={compareExams}
+                        disabled={docFiles.length < 2 || isAnalyzing}
+                        style={{ 
+                            background: isAnalyzing ? '#94a3b8' : '#2563eb', color: 'white', border: 'none', 
+                            padding: '12px 30px', borderRadius: '8px', fontSize: '16px', fontWeight: 600, 
+                            cursor: isAnalyzing ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: '10px'
+                        }}>
+                        {isAnalyzing ? <Loader2 className="spin" /> : <Shuffle size={20} />}
+                        {isAnalyzing ? 'Đang phân tích...' : 'So sánh câu hỏi'}
+                    </button>
+                    {docFiles.length < 2 && <p style={{ color: '#ef4444', fontSize: '13px', marginTop: '10px' }}>Vui lòng tải lên ít nhất 2 đề thi.</p>}
                 </div>
 
-                {analysisResult && docFiles.length > 0 && (
+                {analysisResult && (
                     <div style={{ background: 'white', padding: '20px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-                             <h3 style={{ margin: 0, color: '#334155' }}>Kết quả so sánh {analysisType === 'math' ? '(Toán)' : (analysisType === 'science' ? '(KHTN)' : '(Tiếng Anh)')}</h3>
+                             <h3 style={{ margin: 0, color: '#334155' }}>Kết quả so sánh</h3>
                              <button 
                                 onClick={downloadComparisonWord}
                                 style={{ 
@@ -1122,8 +769,8 @@ const App = () => {
                              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', minWidth: '1200px' }}>
                                  <thead>
                                      <tr>
-                                         <th style={{ padding: '10px', background: TABLE_COLORS[0], border: '1px solid #cbd5e1', minWidth: '150px' }}>{docFiles[0]?.name || 'Chưa có file'} (Gốc)</th>
-                                         {Array.from({length: analysisType === 'math' ? 34 : 40}, (_, i) => (
+                                         <th style={{ padding: '10px', background: TABLE_COLORS[0], border: '1px solid #cbd5e1', minWidth: '150px' }}>{docFiles[0].name} (Gốc)</th>
+                                         {Array.from({length: 40}, (_, i) => (
                                              <th key={i} style={{ padding: '8px', background: TABLE_COLORS[0], border: '1px solid #cbd5e1', width: '30px' }}>{i + 1}</th>
                                          ))}
                                      </tr>
@@ -1134,10 +781,9 @@ const App = () => {
                                              <td style={{ padding: '10px', border: '1px solid #cbd5e1', fontWeight: 600, background: TABLE_COLORS[(rowIdx + 1) % TABLE_COLORS.length] }}>
                                                  {res.examName}
                                              </td>
-                                             {/* Render cells based on max columns */}
-                                             {Array.from({length: analysisType === 'math' ? 34 : 40}).map((_, colIdx) => (
+                                             {res.mapping.map((val, colIdx) => (
                                                  <td key={colIdx} style={{ padding: '8px', border: '1px solid #cbd5e1', textAlign: 'center', background: TABLE_COLORS[(rowIdx + 1) % TABLE_COLORS.length] }}>
-                                                     {res.mapping[colIdx] || '-'}
+                                                     {val || '-'}
                                                  </td>
                                              ))}
                                          </tr>
@@ -1235,44 +881,10 @@ const App = () => {
         </div>
       )}
 
-      {/* --- SETTINGS BUTTON (Bottom Left) --- */}
-      <div 
-        onClick={() => setShowSettings(true)}
-        style={{ 
-          position: 'fixed', bottom: '20px', left: '20px', zIndex: 100, 
-          background: 'white', border: '1px solid #cbd5e1', borderRadius: '50px', 
-          padding: '10px 20px', cursor: 'pointer', boxShadow: '0 4px 10px rgba(0,0,0,0.1)',
-          display: 'flex', alignItems: 'center', gap: '8px', color: '#1e3a8a', fontWeight: 600
-        }}>
-         <Settings size={20} /> Cài đặt
-      </div>
-
       <style>{`
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         .subject-card:hover .hover-overlay { opacity: 1 !important; }
         .subject-card:focus { outline: 3px solid #3b82f6; }
-        .compare-btn {
-           display: flex;
-           flex-direction: column;
-           align-items: center;
-           justify-content: center;
-           padding: 20px;
-           border-radius: 12px;
-           gap: 10px;
-           cursor: pointer;
-           transition: all 0.2s;
-        }
-        .compare-btn:hover:not(:disabled) {
-           filter: brightness(0.95);
-           transform: translateY(-2px);
-        }
-        .compare-btn:disabled {
-           opacity: 0.6;
-           cursor: not-allowed;
-           border-color: #cbd5e1 !important;
-           background: #e2e8f0 !important;
-           color: #94a3b8 !important;
-        }
       `}</style>
     </div>
   );
