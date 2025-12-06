@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hỗ trợ chấm bài NK12</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Mammoth.js for converting .docx to text -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <style>
+      :root {
+        --primary-color: #1e3a8a; /* Dark Blue */
+        --primary-hover: #172554;
+        --bg-color: #f1f5f9;
+        --text-color: #0f172a;
+        --border-radius: 12px;
+        
+        /* High Contrast Subject Headers */
+        --subject-math: #1d4ed8; /* Blue 700 */
+        --subject-phys: #0891b2; /* Cyan 600 */
+        --subject-chem: #7c3aed; /* Violet 600 */
+        --subject-eng: #c2410c; /* Orange 700 */
+        --subject-bio: #15803d; /* Green 700 */
+      }
+      body {
+        margin: 0;
+        font-family: 'Be Vietnam Pro', sans-serif;
+        background-color: var(--bg-color);
+        color: var(--text-color);
+        -webkit-font-smoothing: antialiased;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      /* Custom Scrollbar */
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #e2e8f0; 
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #94a3b8; 
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #64748b; 
+      }
+      
+      /* Focus outline for accessibility and Paste indication */
+      .subject-card:focus {
+        outline: 3px solid var(--primary-color);
+        outline-offset: 2px;
+      }
+      
+      /* Tabs */
+      .tab-button {
+        padding: 12px 24px;
+        font-weight: 600;
+        cursor: pointer;
+        border: none;
+        background: transparent;
+        color: #64748b;
+        border-bottom: 2px solid transparent;
+        transition: all 0.2s;
+      }
+      .tab-button.active {
+        color: var(--primary-color);
+        border-bottom-color: var(--primary-color);
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.31.0",
+    "react/": "https://aistudiocdn.com/react@^19.2.1/",
+    "react": "https://aistudiocdn.com/react@^19.2.1",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>

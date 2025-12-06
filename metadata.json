@@ -1,0 +1,5 @@
+{
+  "name": "chambai2.0",
+  "description": "Ứng dụng hỗ trợ chấm thi trắc nghiệm: Tải ảnh đáp án, phân loại theo môn học (Toán, Lý, Hóa, Anh, Sinh), và sử dụng AI để trích xuất bảng đáp án thành file Word.",
+  "requestFramePermissions": []
+}
